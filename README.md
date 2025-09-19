@@ -58,4 +58,4 @@ The app uses StoreKit 2 for premium subscriptions. Make sure to:
 
 ## Security Note
 
-Never commit API keys to source control. The app is configured to read the API key from Info.plist or environment variables.
+Never commit API keys to source control. The app is configured to read the API key from Info.plist or environment variables.# yugioh-card-scanner
