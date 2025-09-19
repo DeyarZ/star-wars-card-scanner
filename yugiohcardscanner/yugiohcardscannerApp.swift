@@ -10,9 +10,11 @@ import SwiftData
 
 @main
 struct yugiohcardscannerApp: App {
+    @StateObject private var premiumManager = PremiumManager.shared
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            SavedCard.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -26,6 +28,7 @@ struct yugiohcardscannerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(premiumManager)
         }
         .modelContainer(sharedModelContainer)
     }
