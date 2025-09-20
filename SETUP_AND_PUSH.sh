@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# This script will help you push the Yu-Gi-Oh Card Scanner to GitHub
+# This script will help you push the TCG Scanner to GitHub
 # WITHOUT any API keys in the code
 
-echo "Yu-Gi-Oh Card Scanner - GitHub Push Helper"
+echo "TCG Scanner (Star Wars Edition) - GitHub Push Helper"
 echo "=========================================="
 echo ""
 echo "IMPORTANT: This app requires all the Swift files that were created during development."
@@ -29,7 +29,7 @@ echo ""
 echo "Once you have all files:"
 echo "1. Make sure CardScannerService.swift has empty API key: private let openAIAPIKey = \"\""
 echo "2. Run: git add -A"
-echo "3. Run: git commit -m 'Yu-Gi-Oh Card Scanner App'"
+echo "3. Run: git commit -m 'TCG Scanner App - Star Wars Edition'"
 echo "4. Run: git push origin main --force"
 echo ""
 echo "Users will need to add their own OpenAI API key as explained in README.md"

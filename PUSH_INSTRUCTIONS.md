@@ -10,15 +10,15 @@ The repository cannot be pushed directly because it contains an API key in the g
    ```bash
    git init
    git add .
-   git commit -m "Initial commit - Yu-Gi-Oh Card Scanner App"
+   git commit -m "Initial commit - TCG Scanner App - Star Wars Edition"
    git branch -M main
-   git remote add origin https://github.com/DeyarZ/yugioh-card-scanner.git
+   git remote add origin https://github.com/DeyarZ/tcg-scanner.git
    git push -u origin main --force
    ```
 
 ## Option 2: Use the GitHub web interface
 
-1. Go to https://github.com/DeyarZ/yugioh-card-scanner
+1. Go to https://github.com/DeyarZ/tcg-scanner
 2. Click "Add file" > "Upload files"
 3. Drag and drop all project files (except .git folder)
 4. Commit directly to main branch
@@ -31,7 +31,7 @@ The repository cannot be pushed directly because it contains an API key in the g
 ## Important Files to Include
 
 Make sure to include:
-- All .swift files in yugiohcardscanner/
+- All .swift files in the project (tcgscanner/)
 - Assets.xcassets/ (including the app icon)
 - Info.plist
 - paywallbackgroundvideo.mp4
