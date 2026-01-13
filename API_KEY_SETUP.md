@@ -11,15 +11,21 @@ This app uses OpenAI's GPT-4 Vision API to identify and analyze Star Wars cards.
    - Create an account or sign in
    - Generate a new API key
 
-2. **Add Your API Key**
-   - Open `tcgscanner/CardScannerService.swift`
-   - Find line 22: `private let openAIAPIKey: String = "YOUR_OPENAI_API_KEY_HERE"`
-   - Replace `"YOUR_OPENAI_API_KEY_HERE"` with your actual API key
+2. **Add Your API Key (Secure Method)**
+   - Copy `tcgscanner/Info.plist.template` to `tcgscanner/Info.plist`
+   - Open `tcgscanner/Info.plist`
+   - Find: `<string>YOUR_OPENAI_API_KEY_HERE</string>`
+   - Replace `YOUR_OPENAI_API_KEY_HERE` with your actual API key
 
 3. **Example**
-   ```swift
-   private let openAIAPIKey: String = "sk-proj-YOUR_ACTUAL_KEY_HERE"
+   ```xml
+   <key>OPENAI_API_KEY</key>
+   <string>sk-proj-YOUR_ACTUAL_KEY_HERE</string>
    ```
+
+4. **Important: Info.plist is now in .gitignore**
+   - Your API key will NOT be committed to version control
+   - Always use the template file for sharing code
 
 ## Security Note
 

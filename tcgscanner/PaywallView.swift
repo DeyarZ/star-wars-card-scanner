@@ -156,9 +156,15 @@ struct PaywallView: View {
                                     .foregroundColor(.white)
                                     .starWarsGlow()
                                 
-                                Text("Then $6.99/week")
-                                    .font(.starWarsDisplay(18))
-                                    .foregroundColor(.starWarsYellow)
+                                if let weeklyProduct = premiumManager.products.first(where: { $0.id == "com.manuelworlitzer.starwarscardscanner.premium.weekly" }) {
+                                    Text("Then \(weeklyProduct.displayPrice)/week")
+                                        .font(.starWarsDisplay(18))
+                                        .foregroundColor(.starWarsYellow)
+                                } else {
+                                    Text("Loading price...")
+                                        .font(.starWarsDisplay(18))
+                                        .foregroundColor(.starWarsYellow)
+                                }
                             }
                         } else {
                             VStack(spacing: 8) {
@@ -167,14 +173,25 @@ struct PaywallView: View {
                                     .foregroundColor(.lightsaberRed)
                                     .starWarsGlow(color: .lightsaberRed)
                                 
-                                Text("$99.99")
-                                    .font(.starWarsTitle(36))
-                                    .foregroundColor(.white)
-                                    .starWarsGlow()
-                                
-                                Text("Per Year")
-                                    .font(.starWarsDisplay(18))
-                                    .foregroundColor(.starWarsYellow)
+                                if let yearlyProduct = premiumManager.products.first(where: { $0.id == "com.manuelworlitzer.starwarscardscanner.premium.yearly" }) {
+                                    Text(yearlyProduct.displayPrice)
+                                        .font(.starWarsTitle(36))
+                                        .foregroundColor(.white)
+                                        .starWarsGlow()
+
+                                    Text("Per Year")
+                                        .font(.starWarsDisplay(18))
+                                        .foregroundColor(.starWarsYellow)
+                                } else {
+                                    Text("Loading price...")
+                                        .font(.starWarsTitle(36))
+                                        .foregroundColor(.white)
+                                        .starWarsGlow()
+
+                                    Text("")
+                                        .font(.starWarsDisplay(18))
+                                        .foregroundColor(.starWarsYellow)
+                                }
                             }
                         }
                         
@@ -224,6 +241,18 @@ struct PaywallView: View {
                         .background(Color.starWarsYellow)
                         .cornerRadius(30)
                         .starWarsGlow(color: .starWarsYellow)
+                    }
+                    .padding(.bottom, 15)
+                    
+                    // Restore Purchase Link
+                    Button(action: {
+                        Task {
+                            await restorePurchases()
+                        }
+                    }) {
+                        Text("Restore Purchases")
+                            .font(.system(size: 14))
+                            .foregroundColor(.gray)
                     }
                     .padding(.bottom, max(geometry.safeAreaInsets.bottom, 30))
                     
@@ -288,6 +317,28 @@ struct PaywallView: View {
             }
         } catch {
             errorMessage = "Purchase failed: \(error.localizedDescription)"
+            showError = true
+            isProcessingPurchase = false
+        }
+    }
+    
+    func restorePurchases() async {
+        isProcessingPurchase = true
+        
+        do {
+            await premiumManager.restorePurchases()
+            if premiumManager.isPremium {
+                // Restore successful
+                isProcessingPurchase = false
+                showPaywall = false
+            } else {
+                // No purchases found
+                errorMessage = "No purchases found. Make sure you're signed in with the same Apple ID."
+                showError = true
+                isProcessingPurchase = false
+            }
+        } catch {
+            errorMessage = "Restore failed: \(error.localizedDescription)"
             showError = true
             isProcessingPurchase = false
         }

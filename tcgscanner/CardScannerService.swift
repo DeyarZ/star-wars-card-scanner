@@ -15,11 +15,16 @@ class CardScannerService {
     // Currently selected Star Wars game type
     var currentGameType: StarWarsGameType = .unlimited
     
-    // IMPORTANT: Users need to add their OpenAI API key here
-    // Get your API key from: https://platform.openai.com/api-keys
-    // IMPORTANT: Add your OpenAI API key here
-    // Get your API key from: https://platform.openai.com/api-keys
-    private let openAIAPIKey: String = "YOUR_OPENAI_API_KEY_HERE"
+    // Load API key from Info.plist or use placeholder
+    private var openAIAPIKey: String {
+        // First try to load from Info.plist
+        if let infoPlistKey = Bundle.main.object(forInfoDictionaryKey: "OPENAI_API_KEY") as? String,
+           !infoPlistKey.isEmpty {
+            return infoPlistKey
+        }
+        // Fallback to environment variable or placeholder
+        return ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? "YOUR_OPENAI_API_KEY_HERE"
+    }
     
     var lastCardAnalysis: [String: Any]?
     
@@ -32,30 +37,36 @@ class CardScannerService {
             print("⚠️ OpenAI API key not set. Using alternative recognition method...")
             print("For better accuracy, add your OpenAI API key in CardScannerService.swift")
             print("Get your key from: https://platform.openai.com/api-keys")
-            
+
             // Use alternative recognition method
             AlternativeVisionService.shared.enhancedCardRecognition(from: image, completion: completion)
             return
         }
-        
+
+        // Retry the request with delay on network failure
+        attemptCardIdentification(from: image, retryCount: 0, completion: completion)
+    }
+
+    private func attemptCardIdentification(from image: UIImage, retryCount: Int, completion: @escaping (String?) -> Void) {
         // Convert image to base64
         guard let imageData = image.jpegData(compressionQuality: 0.8) else {
             completion(nil)
             return
         }
-        
+
         let base64Image = imageData.base64EncodedString()
-        
+
         // Create request to OpenAI Vision API
         guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
             completion(nil)
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(openAIAPIKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30.0 // 30 second timeout
         
         // Build prompt based on current Star Wars game type
         let prompt = buildPrompt(for: currentGameType)
@@ -89,18 +100,64 @@ class CardScannerService {
             return
         }
         
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            guard let data = data, error == nil else {
-                print("Vision API Error: \(error?.localizedDescription ?? "Unknown error")")
-                completion(nil)
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            // Handle network errors with retry logic
+            if let error = error {
+                print("Vision API Error: \(error.localizedDescription)")
+
+                // Check if it's a network error that we should retry
+                let nsError = error as NSError
+                let isNetworkError = nsError.domain == NSURLErrorDomain && (
+                    nsError.code == NSURLErrorNetworkConnectionLost ||
+                    nsError.code == NSURLErrorTimedOut ||
+                    nsError.code == NSURLErrorNotConnectedToInternet
+                )
+
+                if isNetworkError && retryCount < 3 {
+                    let delay = Double(retryCount + 1) * 2.0 // Exponential backoff: 2, 4, 6 seconds
+                    print("Network error detected. Retrying in \(delay) seconds... (Attempt \(retryCount + 2)/4)")
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        self?.attemptCardIdentification(from: image, retryCount: retryCount + 1, completion: completion)
+                    }
+                    return
+                } else {
+                    print("Failed after \(retryCount + 1) attempts or non-retryable error")
+                    if isNetworkError {
+                        UserDefaults.standard.set(true, forKey: "LastScanNetworkError")
+                    }
+                    DispatchQueue.main.async {
+                        completion(nil)
+                    }
+                    return
+                }
+            }
+
+            guard let data = data else {
+                print("No data received from API")
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
                 return
             }
-            
+
             // Debug: Print response
             if let httpResponse = response as? HTTPURLResponse {
                 print("API Response Status: \(httpResponse.statusCode)")
                 if httpResponse.statusCode != 200 {
                     print("API Response: \(String(data: data, encoding: .utf8) ?? "No response")")
+
+                    // Check for rate limiting or server errors
+                    if httpResponse.statusCode == 429 || httpResponse.statusCode >= 500 {
+                        if retryCount < 2 {
+                            let delay = Double(retryCount + 1) * 3.0
+                            print("Server error or rate limit. Retrying in \(delay) seconds...")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                self?.attemptCardIdentification(from: image, retryCount: retryCount + 1, completion: completion)
+                            }
+                            return
+                        }
+                    }
                 }
             }
             
@@ -112,49 +169,70 @@ class CardScannerService {
                    let content = message["content"] as? String {
                     
                     print("GPT Response: \(content)")
-                    
+
                     // Strip markdown code blocks if present
                     var cleanContent = content
                     if cleanContent.contains("```json") {
-                        cleanContent = cleanContent
-                            .replacingOccurrences(of: "```json\n", with: "")
-                            .replacingOccurrences(of: "```json", with: "")
-                            .replacingOccurrences(of: "\n```", with: "")
-                            .replacingOccurrences(of: "```", with: "")
+                        // Find the JSON content between the code block markers
+                        if let startRange = cleanContent.range(of: "```json"),
+                           let endRange = cleanContent.range(of: "```", options: .backwards, range: startRange.upperBound..<cleanContent.endIndex) {
+                            cleanContent = String(cleanContent[startRange.upperBound..<endRange.lowerBound])
+                        } else {
+                            // Fallback to simple replacement
+                            cleanContent = cleanContent
+                                .replacingOccurrences(of: "```json\n", with: "")
+                                .replacingOccurrences(of: "```json", with: "")
+                                .replacingOccurrences(of: "\n```", with: "")
+                                .replacingOccurrences(of: "```", with: "")
+                        }
                     }
                     cleanContent = cleanContent.trimmingCharacters(in: .whitespacesAndNewlines)
-                    
-                    // Fix common JSON issues
-                    if !cleanContent.hasSuffix("}") && !cleanContent.hasSuffix("\"") {
-                        cleanContent += "\""  // Add missing quote
+
+                    // Fix truncated JSON by closing any open structures
+                    if !cleanContent.isEmpty {
+                        // Count open and close braces
+                        let openBraces = cleanContent.filter { $0 == "{" }.count
+                        let closeBraces = cleanContent.filter { $0 == "}" }.count
+
+                        // Remove trailing comma if present
+                        if cleanContent.hasSuffix(",") {
+                            cleanContent.removeLast()
+                        }
+
+                        // Add missing quotes if string value is incomplete
+                        let lines = cleanContent.components(separatedBy: .newlines)
+                        if let lastLine = lines.last, lastLine.contains(":") && !lastLine.contains("}") {
+                            let quoteCount = lastLine.filter { $0 == "\"" }.count
+                            if quoteCount % 2 != 0 {
+                                cleanContent += "\""
+                            }
+                        }
+
+                        // Add missing closing braces
+                        let bracesToAdd = openBraces - closeBraces
+                        for _ in 0..<bracesToAdd {
+                            cleanContent += "\n}"
+                        }
                     }
-                    if !cleanContent.hasSuffix("}") {
-                        cleanContent += "\n}"  // Add missing brace
-                    }
-                    
+
                     // Parse the JSON response from GPT
                     if let cardData = cleanContent.data(using: .utf8),
                        let cardInfo = try? JSONSerialization.jsonObject(with: cardData) as? [String: Any],
                        let cardName = cardInfo["name"] as? String {
-                        
+
                         print("Vision AI identified card: \(cardName)")
                         print("Full card info: \(cardInfo)")
-                        
+
                         // Store the full analysis for later use
-                        self.lastCardAnalysis = cardInfo
-                        
+                        self?.lastCardAnalysis = cardInfo
+
                         completion(cardName)
                     } else {
                         print("Failed to parse GPT response as JSON")
-                        
-                        // Try simple text response as fallback
-                        let cleanedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !cleanedContent.isEmpty && cleanedContent != "NOT_FOUND" {
-                            print("Using raw response as card name: \(cleanedContent)")
-                            completion(cleanedContent)
-                        } else {
-                            completion(nil)
-                        }
+                        print("Cleaned content: \(cleanContent)")
+
+                        // Don't use raw JSON as card name
+                        completion(nil)
                     }
                 } else {
                     print("Failed to parse OpenAI response")
@@ -188,9 +266,19 @@ class CardScannerService {
             - type: Leader/Base/Unit/Event/Upgrade
             - condition: Near Mint/Lightly Played/Moderately Played/Heavily Played/Damaged
             - psa_rating: 1-10 based on condition
-            - estimated_raw_value: realistic market value in USD
+            - tcgplayer_price: realistic TCGPlayer market price in USD based on card rarity, popularity and condition
+            - ai_estimated_value: AI-estimated collector value in USD considering PSA grade potential
             - centering_notes: brief centering observation
-            
+
+            IMPORTANT PRICING GUIDELINES:
+            - Common cards: $0.25-$2.00
+            - Uncommon cards: $0.50-$5.00
+            - Rare cards: $2.00-$25.00
+            - Legendary cards: $10.00-$150.00+
+            - Special/Hyperspace cards: $20.00-$500.00+
+            - Adjust based on character popularity (Luke, Vader, Leia = higher value)
+            - Condition affects price: NM=100%, LP=80%, MP=60%, HP=40%, DMG=20%
+
             CRITICAL: For Unit cards, you MUST identify:
             - COST in the TOP RIGHT corner (usually white number in black circle)
             - POWER as the RED number (attack value)
@@ -216,7 +304,17 @@ class CardScannerService {
             - cost: resource cost
             - condition: Near Mint/Lightly Played/Moderately Played/Heavily Played/Damaged
             - psa_rating: 1-10 based on condition
-            - estimated_raw_value: realistic market value in USD
+            - tcgplayer_price: realistic TCGPlayer market price in USD
+            - ai_estimated_value: AI-estimated collector value in USD
+
+            PRICING GUIDELINES:
+            - Starter cards: $0.10-$1.00
+            - Common cards: $0.25-$2.00
+            - Uncommon cards: $0.50-$5.00
+            - Rare cards: $2.00-$30.00
+            - Legendary cards: $10.00-$200.00+
+            - Popular characters command premium prices
+            - Condition affects price significantly
             """
         }
     }
@@ -229,20 +327,20 @@ class CardScannerService {
             .replacingOccurrences(of: "©", with: "")
             .replacingOccurrences(of: "'", with: "'")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         print("Searching for card: \(cleanedName)")
-        
+
         // For Star Wars cards, create from the AI analysis
         createCardFromAnalysis(name: cleanedName, completion: completion)
     }
-    
+
     // MARK: - Create card from AI analysis
     private func createCardFromAnalysis(name: String, completion: @escaping ((any StarWarsCard)?) -> Void) {
         guard let analysis = lastCardAnalysis else {
             completion(nil)
             return
         }
-        
+
         switch currentGameType {
         case .unlimited:
             let card = StarWarsUnlimitedCard(
@@ -266,7 +364,7 @@ class CardScannerService {
                 setNumber: analysis["number"] as? String
             )
             completion(card)
-            
+
         case .destiny:
             let card = StarWarsDestinyCard(
                 id: UUID().uuidString,
@@ -293,17 +391,35 @@ class CardScannerService {
     
     // MARK: - Convert StarWarsCard to SavedCard
     func convertToSavedCard(from card: any StarWarsCard, psaRating: Int? = nil) -> SavedCard {
-        // Extract price from analysis if available
+        // Extract prices from analysis if available
         var tcgplayerPrice: Double?
         var estimatedValue: Double?
-        
+
         if let analysis = lastCardAnalysis {
-            if let rawValue = analysis["estimated_raw_value"] as? Double {
-                estimatedValue = rawValue
-                tcgplayerPrice = rawValue
-            } else if let rawValueString = analysis["estimated_raw_value"] as? String {
-                estimatedValue = Double(rawValueString.replacingOccurrences(of: "$", with: ""))
-                tcgplayerPrice = estimatedValue
+            // Try to get TCGPlayer price
+            if let tcgPrice = analysis["tcgplayer_price"] as? Double {
+                tcgplayerPrice = tcgPrice
+            } else if let tcgPriceString = analysis["tcgplayer_price"] as? String {
+                tcgplayerPrice = Double(tcgPriceString.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: ""))
+            }
+
+            // Try to get AI estimated value
+            if let aiValue = analysis["ai_estimated_value"] as? Double {
+                estimatedValue = aiValue
+            } else if let aiValueString = analysis["ai_estimated_value"] as? String {
+                estimatedValue = Double(aiValueString.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: ""))
+            }
+
+            // Fallback to old field name for compatibility
+            if tcgplayerPrice == nil {
+                if let rawValue = analysis["estimated_raw_value"] as? Double {
+                    tcgplayerPrice = rawValue
+                    estimatedValue = estimatedValue ?? rawValue
+                } else if let rawValueString = analysis["estimated_raw_value"] as? String {
+                    let value = Double(rawValueString.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: ""))
+                    tcgplayerPrice = value
+                    estimatedValue = estimatedValue ?? value
+                }
             }
         }
         
@@ -331,7 +447,7 @@ class CardScannerService {
             if let diceSides = destinyCard.diceSides { attributes["diceSides"] = diceSides }
         }
         
-        return SavedCard(
+        var savedCard = SavedCard(
             name: card.name,
             cardType: card.cardType,
             gameType: card.gameType.rawValue,
@@ -346,6 +462,11 @@ class CardScannerService {
             condition: lastCardAnalysis?["condition"] as? String,
             attributes: attributes
         )
+
+        // Set the AI estimated value separately
+        savedCard.estimatedValue = estimatedValue
+
+        return savedCard
     }
     
     // MARK: - Estimate PSA Grade

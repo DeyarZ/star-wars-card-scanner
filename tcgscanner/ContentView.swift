@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import SwiftData
+import PhotosUI
 
 struct ContentView: View {
     @EnvironmentObject var premiumManager: PremiumManager
@@ -381,12 +382,18 @@ struct SavedCardView: View {
 }
 
 struct ScannerView: View {
+    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var premiumManager: PremiumManager
     @State private var isShowingScanner = false
+    @State private var isShowingImagePicker = false
     @State private var scannedCard: SavedCard?
     @State private var showingAlert = false
     @State private var showingLimitAlert = false
     @State private var showPaywall = false
+    @State private var selectedImage: UIImage?
+    @State private var isProcessingImage = false
+    @State private var showingCardDetail = false
+    @State private var processingError: String?
     
     var body: some View {
         NavigationView {
@@ -415,29 +422,81 @@ struct ScannerView: View {
                     
                     Text("Position your card within the frame")
                         .foregroundColor(Color(red: 0.7, green: 0.7, blue: 0.7))
+
+                    HStack(spacing: 20) {
+                        Button(action: {
+                            if premiumManager.canScanToday() {
+                                checkCameraPermission()
+                            } else {
+                                showingLimitAlert = true
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "camera")
+                                Text("CAMERA")
+                                    .font(.starWarsTitle(14))
+                                    .bold()
+                                    .kerning(1)
+                            }
+                            .foregroundColor(.black)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.starWarsYellow)
+                            .cornerRadius(25)
+                            .starWarsGlow()
+                        }
+
+                        Button(action: {
+                            if premiumManager.canScanToday() {
+                                isShowingImagePicker = true
+                            } else {
+                                showingLimitAlert = true
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "photo")
+                                Text("GALLERY")
+                                    .font(.starWarsTitle(14))
+                                    .bold()
+                                    .kerning(1)
+                            }
+                            .foregroundColor(.black)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.starWarsYellow)
+                            .cornerRadius(25)
+                            .starWarsGlow()
+                        }
+                    }
+                    .padding(.horizontal)
                     
-                    Button(action: {
-                        if premiumManager.canScanToday() {
-                            checkCameraPermission()
-                        } else {
-                            showingLimitAlert = true
+                    if isProcessingImage {
+                        VStack {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(Color.starWarsYellow)
+
+                            Text("ANALYZING CARD...")
+                                .font(.starWarsTitle(14))
+                                .kerning(2)
+                                .foregroundColor(.white)
+                                .padding(.top, 10)
                         }
-                    }) {
-                        HStack {
-                            Image(systemName: "viewfinder")
-                            Text("ACTIVATE")
-                                .font(.starWarsTitle(16))
-                                .bold()
-                                .kerning(1)
-                        }
-                        .foregroundColor(.black)
-                        .padding()
-                        .background(Color.starWarsYellow)
-                        .cornerRadius(25)
+                        .padding(30)
+                        .background(Color.black.opacity(0.8))
+                        .cornerRadius(20)
                         .starWarsGlow()
                     }
-                    
-                    if let card = scannedCard {
+
+                    if let error = processingError {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .padding()
+                            .background(Color.black.opacity(0.8))
+                            .cornerRadius(10)
+                    }
+
+                    if let card = scannedCard, !isProcessingImage {
                         VStack {
                             Text("Last Scanned:")
                                 .foregroundColor(Color(red: 0.7, green: 0.7, blue: 0.7))
@@ -447,7 +506,7 @@ struct ScannerView: View {
                                 .kerning(0.5)
                                 .foregroundColor(Color.starWarsYellow)
                                 .starWarsGlow(color: .starWarsYellow)
-                            
+
                             if let price = card.tcgplayerPrice {
                                 Text(String(format: "$%.2f", price))
                                     .font(.caption)
@@ -464,6 +523,20 @@ struct ScannerView: View {
             .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $isShowingScanner) {
                 CameraScannerView(scannedCard: $scannedCard)
+            }
+            .sheet(isPresented: $isShowingImagePicker) {
+                ImagePicker(image: $selectedImage)
+            }
+            .onChange(of: selectedImage) { oldValue, newValue in
+                if let image = newValue {
+                    processSelectedImage(image)
+                    selectedImage = nil
+                }
+            }
+            .sheet(isPresented: $showingCardDetail) {
+                if let card = scannedCard {
+                    CardDetailView(card: card)
+                }
             }
             .alert("Camera Permission", isPresented: $showingAlert) {
                 Button("Settings") {
@@ -504,6 +577,49 @@ struct ScannerView: View {
             showingAlert = true
         @unknown default:
             break
+        }
+    }
+
+    func processSelectedImage(_ image: UIImage) {
+        isProcessingImage = true
+        processingError = nil
+
+        // Process the selected image using the same service as camera
+        CardScannerService.shared.identifyCard(from: image) { identifiedCardName in
+            guard let cardName = identifiedCardName else {
+                DispatchQueue.main.async {
+                    self.processingError = "Could not identify card. Try a clearer image."
+                    self.isProcessingImage = false
+                    SoundManager.shared.playError()
+                }
+                return
+            }
+
+            CardScannerService.shared.fetchCardData(cardName: cardName) { cardData in
+                DispatchQueue.main.async {
+                    if let apiData = cardData {
+                        let psaRating = CardScannerService.shared.estimatePSAGrade(from: CardScannerService.shared.lastCardAnalysis)
+                        var savedCard = CardScannerService.shared.convertToSavedCard(from: apiData, psaRating: psaRating)
+                        savedCard.imageData = image.jpegData(compressionQuality: 0.8)
+
+                        // Save to database
+                        self.modelContext.insert(savedCard)
+                        try? self.modelContext.save()
+
+                        self.scannedCard = savedCard
+                        self.premiumManager.recordScan()
+                        self.isProcessingImage = false
+                        SoundManager.shared.playCardScanned()
+
+                        // Show detail view
+                        self.showingCardDetail = true
+                    } else {
+                        self.processingError = "Card not found in database"
+                        self.isProcessingImage = false
+                        SoundManager.shared.playError()
+                    }
+                }
+            }
         }
     }
 }

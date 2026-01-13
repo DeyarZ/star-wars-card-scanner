@@ -63,7 +63,7 @@ struct OnboardingView3: View {
                                                     .font(.system(size: geometry.size.height * 0.015, weight: .bold))
                                                     .padding(.top, 5)
                                                 Spacer()
-                                                Image(systemName: "dragon")
+                                                Image(systemName: "sparkles")
                                                     .font(.system(size: geometry.size.height * 0.05))
                                                 Spacer()
                                                 Text("POWER/3000")

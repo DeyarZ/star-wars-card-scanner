@@ -297,16 +297,38 @@ struct CardDetailView: View {
                                     .font(.starWarsTitle(18))
                                     .foregroundColor(.white)
                                     .starWarsGlow()
-                                
+
                                 if let tcgPrice = card.tcgplayerPrice {
                                     HStack {
-                                        Text("TCGPlayer")
-                                            .foregroundColor(.gray)
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "cart.fill")
+                                                .font(.caption)
+                                                .foregroundColor(.gray)
+                                            Text("TCGPlayer")
+                                                .foregroundColor(.gray)
+                                        }
                                         Spacer()
                                         Text(String(format: "$%.2f", tcgPrice))
                                             .font(.starWarsDisplay(16))
                                             .foregroundColor(.starWarsYellow)
                                             .starWarsGlow(color: .starWarsYellow)
+                                    }
+                                }
+
+                                if let estimatedValue = card.estimatedValue {
+                                    HStack {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "sparkles")
+                                                .font(.caption)
+                                                .foregroundColor(.gray)
+                                            Text("AI Estimated Value")
+                                                .foregroundColor(.gray)
+                                        }
+                                        Spacer()
+                                        Text(String(format: "$%.2f", estimatedValue))
+                                            .font(.starWarsDisplay(16))
+                                            .foregroundColor(.hologramBlue)
+                                            .starWarsGlow(color: .hologramBlue)
                                     }
                                 }
                                 

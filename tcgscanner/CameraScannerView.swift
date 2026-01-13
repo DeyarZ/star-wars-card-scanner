@@ -104,7 +104,13 @@ struct CameraScannerView: View {
         CardScannerService.shared.identifyCard(from: image) { identifiedCardName in
             guard let cardName = identifiedCardName else {
                 DispatchQueue.main.async {
-                    self.errorMessage = "Could not identify card. Try better lighting or angle."
+                    // Check if it's a network error based on recent logs
+                    if UserDefaults.standard.bool(forKey: "LastScanNetworkError") {
+                        self.errorMessage = "Network connection lost. Please check your internet and try again."
+                        UserDefaults.standard.set(false, forKey: "LastScanNetworkError")
+                    } else {
+                        self.errorMessage = "Could not identify card. Try better lighting or angle."
+                    }
                     self.isProcessing = false
                 }
                 return

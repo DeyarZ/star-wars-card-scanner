@@ -32,11 +32,13 @@ You need an OpenAI API key to use the card scanning feature.
 2. Add it to your app in one of two ways:
 
 #### Option A: Info.plist (Recommended for development)
-Add this to your `Info.plist`:
+1. Copy `tcgscanner/Info.plist.template` to `tcgscanner/Info.plist`
+2. Add your API key to `Info.plist`:
 ```xml
 <key>OPENAI_API_KEY</key>
 <string>your-api-key-here</string>
 ```
+**Note:** Info.plist is in .gitignore for security
 
 #### Option B: Environment Variable
 Set the environment variable `OPENAI_API_KEY` in your scheme settings.
